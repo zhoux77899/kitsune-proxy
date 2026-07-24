@@ -1,0 +1,98 @@
+# Go build and test artifacts
+/bin/
+/build/
+/dist/
+/release/
+/kitsune-proxy
+/kitsune-proxy.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+*.prof
+*.trace
+
+# Local Go workspace files
+go.work
+go.work.sum
+
+# Runtime data, logs, and secrets
+/.kitsune-proxy/
+/logs/
+/tmp/
+/.tmp/
+/.cache/
+/secrets/
+/certs/private/
+*.log
+*.pid
+*.sock
+.env
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
+
+# Visual Studio Code
+.vscode/
+
+# JetBrains IDEs and Fleet
+.idea/
+.fleet/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# Sublime Text and Vim
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Coding Agent local state
+.agent/
+.agents/
+.aider/
+.claude/
+.cline/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.junie/
+.roo/
+.scratch/
+.windsurf/
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.*
+
+# Operating system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.directory
+.nfs*
