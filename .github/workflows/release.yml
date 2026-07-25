@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           go run ./cmd/icon-gen
-          git diff --exit-code -- assets/generated
+          git diff --exit-code -- assets/generated cmd/kitsune-proxy/rsrc_windows_amd64.syso
       - name: Vet
         run: go vet ./...
       - name: Test

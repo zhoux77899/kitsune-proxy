@@ -12,6 +12,7 @@ import (
 
 	"github.com/srwiley/oksvg"
 	"github.com/srwiley/rasterx"
+	"github.com/tc-hib/winres"
 )
 
 var icoSizes = []int{16, 20, 24, 32, 48, 64, 128, 256}
@@ -36,13 +37,27 @@ func main() {
 		images[size] = rendered
 	}
 
+	ico := encodeICO(images)
+	icns := encodeICNS(images)
+	windowsResource, err := encodeWindowsResource(ico)
+	if err != nil {
+		fatal(fmt.Errorf("encode Windows application icon resource: %w", err))
+	}
+
 	if err := os.WriteFile(filepath.Join(outputDir, "kitsune.png"), images[256], 0o644); err != nil {
 		fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, "kitsune.ico"), encodeICO(images), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "kitsune.ico"), ico, 0o644); err != nil {
 		fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, "kitsune.icns"), encodeICNS(images), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "kitsune.icns"), icns, 0o644); err != nil {
+		fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join("cmd", "kitsune-proxy", "rsrc_windows_amd64.syso"),
+		windowsResource,
+		0o644,
+	); err != nil {
 		fatal(err)
 	}
 }
@@ -127,6 +142,24 @@ func encodeICNS(images map[int][]byte) []byte {
 		output.Write(images[chunk.size])
 	}
 	return output.Bytes()
+}
+
+func encodeWindowsResource(ico []byte) ([]byte, error) {
+	icon, err := winres.LoadICO(bytes.NewReader(ico))
+	if err != nil {
+		return nil, fmt.Errorf("load ICO: %w", err)
+	}
+
+	resources := winres.ResourceSet{}
+	if err := resources.SetIcon(winres.ID(1), icon); err != nil {
+		return nil, fmt.Errorf("set application icon: %w", err)
+	}
+
+	var output bytes.Buffer
+	if err := resources.WriteObject(&output, winres.ArchAMD64); err != nil {
+		return nil, fmt.Errorf("write amd64 COFF object: %w", err)
+	}
+	return output.Bytes(), nil
 }
 
 func fatal(err error) {

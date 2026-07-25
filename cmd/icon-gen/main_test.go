@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"debug/pe"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -54,4 +56,56 @@ func TestPlatformContainersHaveExpectedSignatures(t *testing.T) {
 	if string(icns[:4]) != "icns" {
 		t.Fatalf("ICNS signature = %q", icns[:4])
 	}
+}
+
+func TestEncodeWindowsResourceIsDeterministicAMD64COFF(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile(filepath.Join("..", "..", "assets", "kitsune.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	images := make(map[int][]byte)
+	for _, size := range icoSizes {
+		rendered, renderErr := renderPNG(source, size)
+		if renderErr != nil {
+			t.Fatalf("render %dpx icon: %v", size, renderErr)
+		}
+		images[size] = rendered
+	}
+
+	ico := encodeICO(images)
+	first, err := encodeWindowsResource(ico)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := encodeWindowsResource(ico)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("Windows resource output is not deterministic")
+	}
+
+	object, err := pe.NewFile(bytes.NewReader(first))
+	if err != nil {
+		t.Fatalf("open Windows resource as COFF: %v", err)
+	}
+	defer object.Close()
+
+	if object.Machine != pe.IMAGE_FILE_MACHINE_AMD64 {
+		t.Fatalf("COFF machine = %#x, want amd64", object.Machine)
+	}
+
+	for _, section := range object.Sections {
+		if !strings.HasPrefix(section.Name, ".rsrc") || section.Size == 0 {
+			continue
+		}
+		if content, readErr := section.Data(); readErr != nil {
+			t.Fatalf("read %s section: %v", section.Name, readErr)
+		} else if len(content) > 0 {
+			return
+		}
+	}
+	t.Fatal("Windows resource has no non-empty .rsrc section")
 }
