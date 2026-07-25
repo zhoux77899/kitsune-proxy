@@ -1,0 +1,324 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.26.x"
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Validate release tag
+        shell: bash
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Unsupported release tag: ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+      - name: Check formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "${unformatted}" ]]; then
+            printf '%s\n' "${unformatted}"
+            exit 1
+          fi
+      - name: Check module files
+        shell: bash
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Check generated icons
+        shell: bash
+        run: |
+          go run ./cmd/icon-gen
+          git diff --exit-code -- assets/generated
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Race test
+        run: go test -race ./...
+
+  package-windows:
+    name: Package Windows amd64
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go test ./...
+      - name: Build Windows assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/release | Out-Null
+          New-Item -ItemType Directory -Force dist/package | Out-Null
+
+          go build `
+            -trimpath `
+            -ldflags "-s -w -H=windowsgui" `
+            -o dist/release/kitsune-proxy-windows-amd64.exe `
+            ./cmd/kitsune-proxy
+
+          Copy-Item dist/release/kitsune-proxy-windows-amd64.exe dist/package/kitsune-proxy.exe
+          Copy-Item README.md, LICENSE -Destination dist/package
+          Compress-Archive `
+            -Path dist/package/* `
+            -DestinationPath dist/release/kitsune-proxy-windows-amd64.zip
+      - name: Upload Windows assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-amd64
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  package-linux:
+    name: Package Linux amd64
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go test ./...
+      - name: Build Linux assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release dist/package
+
+          go build \
+            -trimpath \
+            -ldflags "-s -w" \
+            -o dist/release/kitsune-proxy-linux-amd64 \
+            ./cmd/kitsune-proxy
+
+          chmod 755 dist/release/kitsune-proxy-linux-amd64
+          cp dist/release/kitsune-proxy-linux-amd64 dist/package/kitsune-proxy
+          cp README.md LICENSE dist/package/
+          tar -C dist/package -czf dist/release/kitsune-proxy-linux-amd64.tar.gz .
+      - name: Upload Linux assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-amd64
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  package-macos:
+    name: Package macOS ${{ matrix.arch }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: amd64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - run: go test ./...
+      - name: Build macOS assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          binary="dist/release/kitsune-proxy-macos-${{ matrix.arch }}"
+          bundle="dist/Kitsune Proxy.app"
+
+          mkdir -p dist/release "${bundle}/Contents/MacOS" "${bundle}/Contents/Resources"
+          go build -trimpath -ldflags "-s -w" -o "${binary}" ./cmd/kitsune-proxy
+          chmod 755 "${binary}"
+
+          cp "${binary}" "${bundle}/Contents/MacOS/kitsune-proxy"
+          cp packaging/macos/Info.plist "${bundle}/Contents/Info.plist"
+          cp assets/generated/kitsune.icns "${bundle}/Contents/Resources/kitsune.icns"
+          chmod 755 "${bundle}/Contents/MacOS/kitsune-proxy"
+          plutil -replace CFBundleShortVersionString -string "${version}" "${bundle}/Contents/Info.plist"
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "${bundle}" \
+            "dist/release/kitsune-proxy-macos-${{ matrix.arch }}.zip"
+      - name: Upload macOS assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - package-windows
+      - package-linux
+      - package-macos
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged assets
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums and latest manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+
+          sha256sum kitsune-proxy-* > SHA256SUMS
+
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${tag}"
+
+          asset_sha() {
+            awk -v name="$1" '$2 == name { print $1 }' SHA256SUMS
+          }
+
+          jq -n \
+            --arg version "${version}" \
+            --arg tag "${tag}" \
+            --arg published_at "${published_at}" \
+            --arg release_url "${release_url}" \
+            --arg windows_binary_url "${base_url}/kitsune-proxy-windows-amd64.exe" \
+            --arg windows_binary_sha "$(asset_sha kitsune-proxy-windows-amd64.exe)" \
+            --arg windows_archive_url "${base_url}/kitsune-proxy-windows-amd64.zip" \
+            --arg windows_archive_sha "$(asset_sha kitsune-proxy-windows-amd64.zip)" \
+            --arg linux_binary_url "${base_url}/kitsune-proxy-linux-amd64" \
+            --arg linux_binary_sha "$(asset_sha kitsune-proxy-linux-amd64)" \
+            --arg linux_archive_url "${base_url}/kitsune-proxy-linux-amd64.tar.gz" \
+            --arg linux_archive_sha "$(asset_sha kitsune-proxy-linux-amd64.tar.gz)" \
+            --arg macos_amd64_binary_url "${base_url}/kitsune-proxy-macos-amd64" \
+            --arg macos_amd64_binary_sha "$(asset_sha kitsune-proxy-macos-amd64)" \
+            --arg macos_amd64_archive_url "${base_url}/kitsune-proxy-macos-amd64.zip" \
+            --arg macos_amd64_archive_sha "$(asset_sha kitsune-proxy-macos-amd64.zip)" \
+            --arg macos_arm64_binary_url "${base_url}/kitsune-proxy-macos-arm64" \
+            --arg macos_arm64_binary_sha "$(asset_sha kitsune-proxy-macos-arm64)" \
+            --arg macos_arm64_archive_url "${base_url}/kitsune-proxy-macos-arm64.zip" \
+            --arg macos_arm64_archive_sha "$(asset_sha kitsune-proxy-macos-arm64.zip)" \
+            --arg source_zip_url "${source_url}.zip" \
+            --arg source_tar_url "${source_url}.tar.gz" \
+            '{
+              schema_version: 1,
+              version: $version,
+              tag: $tag,
+              published_at: $published_at,
+              release_url: $release_url,
+              platforms: {
+                "windows-amd64": {
+                  binary: {
+                    name: "kitsune-proxy-windows-amd64.exe",
+                    url: $windows_binary_url,
+                    sha256: $windows_binary_sha
+                  },
+                  archive: {
+                    name: "kitsune-proxy-windows-amd64.zip",
+                    url: $windows_archive_url,
+                    sha256: $windows_archive_sha
+                  }
+                },
+                "linux-amd64": {
+                  binary: {
+                    name: "kitsune-proxy-linux-amd64",
+                    url: $linux_binary_url,
+                    sha256: $linux_binary_sha
+                  },
+                  archive: {
+                    name: "kitsune-proxy-linux-amd64.tar.gz",
+                    url: $linux_archive_url,
+                    sha256: $linux_archive_sha
+                  }
+                },
+                "darwin-amd64": {
+                  binary: {
+                    name: "kitsune-proxy-macos-amd64",
+                    url: $macos_amd64_binary_url,
+                    sha256: $macos_amd64_binary_sha
+                  },
+                  archive: {
+                    name: "kitsune-proxy-macos-amd64.zip",
+                    url: $macos_amd64_archive_url,
+                    sha256: $macos_amd64_archive_sha
+                  }
+                },
+                "darwin-arm64": {
+                  binary: {
+                    name: "kitsune-proxy-macos-arm64",
+                    url: $macos_arm64_binary_url,
+                    sha256: $macos_arm64_binary_sha
+                  },
+                  archive: {
+                    name: "kitsune-proxy-macos-arm64.zip",
+                    url: $macos_arm64_archive_url,
+                    sha256: $macos_arm64_archive_sha
+                  }
+                }
+              },
+              source: {
+                zip: $source_zip_url,
+                tar_gz: $source_tar_url
+              }
+            }' > latest.json
+
+          sha256sum --check SHA256SUMS
+          jq empty latest.json
+      - name: Inspect release assets
+        shell: bash
+        run: |
+          find release-assets -maxdepth 1 -type f -printf "%f\n" | sort
+      - name: Create release and upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          release_flags=(--verify-tag --generate-notes --title "Kitsune Proxy ${GITHUB_REF_NAME}")
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+
+          gh release create \
+            "${GITHUB_REF_NAME}" \
+            release-assets/* \
+            "${release_flags[@]}"
