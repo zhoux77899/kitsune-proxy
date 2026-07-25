@@ -1,0 +1,85 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Kitsune Proxy
+title: "bug: "
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Kitsune Proxy. Do not include provider tokens, private keys, authorization headers, real endpoint configuration, or sensitive request bodies.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I searched open and closed issues for an existing report.
+          required: true
+        - label: I removed or redacted credentials and sensitive request data.
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug summary
+      description: What happened, and what did you expect instead?
+      placeholder: Describe the incorrect behavior and expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable reproduction, using sanitized configuration and a local fake upstream when possible.
+      placeholder: |
+        1. Configure ...
+        2. Send ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Explain what is blocked or degraded, including whether passthrough, streaming, cancellation, shutdown, or routing is affected.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      multiple: true
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Multiple platforms
+        - Unknown
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Kitsune Proxy version or commit
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized logs and diagnostics
+      description: Paste relevant logs, errors, or test output. Redact credentials, endpoint secrets, and sensitive bodies.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add anything else that may help reproduce or diagnose the problem.
+

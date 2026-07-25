@@ -1,0 +1,45 @@
+name: Documentation issue
+description: Report missing, unclear, or incorrect documentation
+title: "docs: "
+labels:
+  - needs-triage
+body:
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I searched open and closed issues for an existing report.
+          required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      description: Link the page or provide the repository path and section.
+      placeholder: README.md#development
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Explain what is missing, unclear, outdated, or incorrect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: improvement
+    attributes:
+      label: Suggested improvement
+      description: Describe the information or wording that would resolve the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, screenshots, or related links if useful. Do not include credentials or sensitive data.
+
