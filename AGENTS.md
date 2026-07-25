@@ -2,7 +2,7 @@
 
 ## Architecture & Scope
 
-Kitsune Proxy is a cross-platform Go tray application. Its local HTTPS listener selects a configured upstream using `model_id`, forwards the request, and streams the response to the Agent.
+Kitsune Proxy is a cross-platform Go tray application. Its fixed IPv4-loopback HTTP listener selects a configured upstream using the unique top-level JSON `model`, forwards the request, and streams the response to the Agent.
 
 This is a transparent proxy: preserve method, path, body, streaming, status, and compatible headers; never translate schemas. Keep routing, transport, TLS, configuration, and tray lifecycle as deep modules behind small interfaces. Provider-specific logic only selects URLs and credentials.
 
@@ -16,6 +16,7 @@ Use this target layout:
 - `internal/router/` — `model_id` resolution.
 - `internal/config/` — configuration and validation.
 - `internal/tray/` — tray UI and OS integration.
+- `internal/autostart/` — per-user OS login registration.
 - `assets/` — icons and packaged resources.
 - `tests/integration/` — end-to-end tests; unit tests stay beside source.
 
@@ -38,7 +39,7 @@ Keep packages lowercase, singular, and focused. Use Go `MixedCaps` and preserve 
 
 ## Testing Guidelines
 
-Name tests `*_test.go` and prefer table-driven cases. Use `httptest` and fake upstreams; never contact real providers. Verify routing, passthrough, streaming, cancellation, timeouts, malformed input, upstream failures, and shutdown. Add platform-specific tray and TLS checks.
+Name tests `*_test.go` and prefer table-driven cases. Use `httptest` and fake upstreams; never contact real providers. Verify routing, passthrough, streaming, cancellation, timeouts, malformed input, upstream failures, and shutdown. Add platform-specific tray and autostart checks.
 
 ## Commit & Pull Request Guidelines
 
@@ -46,7 +47,7 @@ With no existing history, use Conventional Commits, for example `feat(router): m
 
 ## Security & Configuration
 
-Bind locally by default. Never commit tokens, private keys, or user configuration. Provide sanitized examples, restrict certificate and config permissions, and redact credentials and sensitive bodies from logs.
+Bind only to IPv4 loopback. Never commit tokens, private keys, or user configuration. Provide sanitized examples, restrict configuration and log permissions, and redact credentials and sensitive bodies from logs.
 
 ## Agent skills
 
