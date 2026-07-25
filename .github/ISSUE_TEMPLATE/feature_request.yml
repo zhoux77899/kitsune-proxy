@@ -1,0 +1,87 @@
+name: Feature request
+description: Propose a focused capability or behavior change
+title: "feat: "
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Kitsune Proxy is a local transparent proxy. It routes by `model_id` and does not translate provider schemas.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I searched open and closed issues for an existing proposal.
+          required: true
+        - label: This proposal is compatible with transparent forwarding and does not require schema translation.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the concrete user problem, not only the desired implementation.
+      placeholder: When ..., I cannot ..., which means ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should users be able to do after this is implemented?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Optional. Describe an interface or behavior that could solve the problem.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other approaches you evaluated.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Application lifecycle
+        - Proxy and transport
+        - Routing
+        - Configuration
+        - TLS and certificates
+        - System tray
+        - Packaging and releases
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system scope
+      multiple: true
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - All platforms
+        - Not platform-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add mockups, sanitized examples, related issues, or other useful context.
+
