@@ -163,6 +163,12 @@ The tray menu shows listener state, address, model count, and logging
 availability. It can open the configuration or log directory, reload the
 configuration, enable or disable **Start at Login**, and quit.
 
+On Windows, a solid dot at the lower-right of the tray icon shows service
+health: green is healthy, yellow is starting or degraded, red means no listener
+is available, and gray is stopped. On macOS, the menu bar uses a monochrome
+template icon without a visible title or tooltip; macOS chooses black or white
+for the current menu bar appearance. Linux keeps the color icon and title.
+
 Start-at-login is stored as a per-user operating-system preference:
 
 - Windows: the current user's `Run` registry key.
@@ -211,10 +217,13 @@ go fmt ./...
 ```
 
 `assets/kitsune.svg` is the only icon source. `go run ./cmd/icon-gen`
-reproducibly creates the embedded tray PNG and ICO, the macOS ICNS, and the
-Windows amd64 COFF resource containing the application icon and a per-monitor
-V2 DPI manifest. Go automatically links the generated
-`rsrc_windows_amd64.syso` resources into Windows amd64 executables.
+reproducibly creates the color Linux tray PNG, the base Windows ICO and macOS
+ICNS application icons, four multi-resolution Windows status tray ICOs, and
+black/white macOS template previews. The runtime embeds the black macOS template
+and lets the operating system recolor it. The generator also creates the Windows
+amd64 COFF resource containing the base application icon and a per-monitor V2
+DPI manifest. Go automatically links the generated `rsrc_windows_amd64.syso`
+resources into Windows amd64 executables.
 
 Windows release builds use `-ldflags "-H=windowsgui"`. macOS releases package
 the generated ICNS in unsigned `.app` bundles with `LSUIElement=1`. Linux

@@ -26,11 +26,29 @@ type Native struct {
 	mu               sync.Mutex
 	ready            bool
 	status           app.Status
+	platformIconKey  string
 	autostartEnabled bool
 	statusItem       *systray.MenuItem
 	modelsItem       *systray.MenuItem
 	loggingItem      *systray.MenuItem
 	autostartItem    *systray.MenuItem
+}
+
+type trayHealth string
+
+const (
+	trayHealthy  trayHealth = "healthy"
+	trayDegraded trayHealth = "degraded"
+	trayError    trayHealth = "error"
+	trayStopped  trayHealth = "stopped"
+)
+
+type platformPresentation struct {
+	icon     []byte
+	iconKey  string
+	template bool
+	title    string
+	tooltip  string
 }
 
 // New returns an unstarted tray adapter.
@@ -69,11 +87,8 @@ func (n *Native) SetStatus(status app.Status) {
 }
 
 func (n *Native) onReady(actions Actions) {
-	systray.SetIcon(platformIcon())
-	systray.SetTitle(n.catalog.Text("tooltip"))
-	systray.SetTooltip(n.catalog.Text("tooltip"))
-
 	n.mu.Lock()
+	n.applyPlatformPresentationLocked(true)
 	n.statusItem = systray.AddMenuItem("", "")
 	n.statusItem.Disable()
 	n.modelsItem = systray.AddMenuItem("", "")
@@ -133,6 +148,7 @@ func (n *Native) onReady(actions Actions) {
 }
 
 func (n *Native) applyStatusLocked() {
+	n.applyPlatformPresentationLocked(false)
 	n.statusItem.SetTitle(statusTitle(n.catalog, n.status))
 	n.modelsItem.SetTitle(fmt.Sprintf(n.catalog.Text("menu_models"), n.status.Models))
 	if n.status.LoggingAvailable {
@@ -141,6 +157,27 @@ func (n *Native) applyStatusLocked() {
 		n.loggingItem.Show()
 	}
 	n.applyAutostartLocked()
+}
+
+func (n *Native) applyPlatformPresentationLocked(initial bool) {
+	presentation := platformPresentationFor(n.status, n.catalog.Text("tooltip"))
+	if initial {
+		if presentation.title != "" {
+			systray.SetTitle(presentation.title)
+		}
+		if presentation.tooltip != "" {
+			systray.SetTooltip(presentation.tooltip)
+		}
+	}
+	if presentation.iconKey == n.platformIconKey {
+		return
+	}
+	if presentation.template {
+		systray.SetTemplateIcon(presentation.icon, presentation.icon)
+	} else {
+		systray.SetIcon(presentation.icon)
+	}
+	n.platformIconKey = presentation.iconKey
 }
 
 func (n *Native) applyAutostartLocked() {
@@ -172,5 +209,31 @@ func statusTitle(catalog *i18n.Catalog, status app.Status) string {
 		return catalog.Text("menu_status_stopped")
 	default:
 		return catalog.Text("menu_status_starting")
+	}
+}
+
+func trayHealthForStatus(status app.Status) trayHealth {
+	switch status.State {
+	case app.StateStopped:
+		return trayStopped
+	case app.StateStarting:
+		return trayDegraded
+	case app.StateRunning:
+		if status.Address == "" {
+			return trayError
+		}
+		if !status.LoggingAvailable {
+			return trayDegraded
+		}
+		return trayHealthy
+	case app.StateConfigError:
+		if status.Address != "" {
+			return trayDegraded
+		}
+		return trayError
+	case app.StateListenerError:
+		return trayError
+	default:
+		return trayError
 	}
 }

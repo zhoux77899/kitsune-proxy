@@ -61,9 +61,15 @@ func TestDeliveryMetadataAndGeneratedIcons(t *testing.T) {
 	}
 
 	signatures := map[string][]byte{
-		"kitsune.png":  {0x89, 'P', 'N', 'G'},
-		"kitsune.ico":  {0, 0, 1, 0},
-		"kitsune.icns": {'i', 'c', 'n', 's'},
+		"kitsune.png":                       {0x89, 'P', 'N', 'G'},
+		"kitsune.ico":                       {0, 0, 1, 0},
+		"kitsune.icns":                      {'i', 'c', 'n', 's'},
+		"kitsune-tray-macos-black.png":      {0x89, 'P', 'N', 'G'},
+		"kitsune-tray-macos-white.png":      {0x89, 'P', 'N', 'G'},
+		"kitsune-tray-windows-healthy.ico":  {0, 0, 1, 0},
+		"kitsune-tray-windows-degraded.ico": {0, 0, 1, 0},
+		"kitsune-tray-windows-error.ico":    {0, 0, 1, 0},
+		"kitsune-tray-windows-stopped.ico":  {0, 0, 1, 0},
 	}
 	for name, signature := range signatures {
 		content, err := os.ReadFile(filepath.Join(root, "assets", "generated", name))
