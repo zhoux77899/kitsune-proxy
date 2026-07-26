@@ -66,7 +66,7 @@ type LoggingConfig struct {
 	Level string `yaml:"level"`
 }
 
-// UpstreamConfig describes one upstream origin, authentication rule, and models.
+// UpstreamConfig describes one upstream base URL, authentication rule, and models.
 type UpstreamConfig struct {
 	URL    string        `yaml:"url"`
 	Auth   AuthConfig    `yaml:"auth"`
@@ -139,14 +139,14 @@ upstreams: {}
 
 # Example:
 # upstreams:
-#   openai:
-#     url: https://api.openai.com
+#   openrouter:
+#     url: https://openrouter.ai/api
 #     auth:
 #       mode: replace
 #       api_key: sk-upstream-key
 #     models:
-#       - id: gpt-5
-#         alias: openai-gpt-5
+#       - id: nvidia/nemotron-3-ultra-550b-a55b:free
+#         alias: openrouter-nemotron
 #
 #   ollama:
 #     url: http://127.0.0.1:11434
@@ -377,7 +377,7 @@ func Validate(cfg Config) error {
 		if !upstreamNamePattern.MatchString(name) {
 			return validation(basePath, "name must contain 1-64 letters, digits, dots, underscores, or hyphens")
 		}
-		if err := validateOrigin(upstream.URL); err != nil {
+		if err := validateBaseURL(upstream.URL); err != nil {
 			return validation(basePath+".url", err.Error())
 		}
 		if err := validateAuth(basePath+".auth", upstream.Auth); err != nil {
@@ -412,19 +412,16 @@ func validation(path, reason string) error {
 	return &ValidationError{Path: path, Reason: reason}
 }
 
-func validateOrigin(raw string) error {
+func validateBaseURL(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return errors.New("must be an absolute HTTP or HTTPS origin")
+		return errors.New("must be an absolute HTTP or HTTPS base URL")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return errors.New("scheme must be http or https")
 	}
 	if parsed.User != nil {
 		return errors.New("userinfo is not allowed")
-	}
-	if parsed.Path != "" && parsed.Path != "/" {
-		return errors.New("path must be empty or /")
 	}
 	if parsed.RawQuery != "" || parsed.ForceQuery {
 		return errors.New("query is not allowed")

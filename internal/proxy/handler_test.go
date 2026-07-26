@@ -27,6 +27,98 @@ func (testLocalizer) Message(code string) string {
 	return "message:" + code
 }
 
+func TestHandlerReplacesLocalBaseURLWithUpstreamBaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		baseURL    string
+		requestURL string
+		want       string
+	}{
+		{
+			name:       "OpenRouter",
+			baseURL:    "https://openrouter.ai/api",
+			requestURL: "http://127.0.0.1:18080/v1/messages?beta=true",
+			want:       "https://openrouter.ai/api/v1/messages?beta=true",
+		},
+		{
+			name:       "Alibaba Model Studio",
+			baseURL:    "https://workspace.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+			requestURL: "http://127.0.0.1:18080/v1/messages",
+			want:       "https://workspace.cn-beijing.maas.aliyuncs.com/apps/anthropic/v1/messages",
+		},
+		{
+			name:       "trailing slash",
+			baseURL:    "https://openrouter.ai/api/",
+			requestURL: "http://127.0.0.1:18080/v1/messages",
+			want:       "https://openrouter.ai/api/v1/messages",
+		},
+		{
+			name:       "root base URL",
+			baseURL:    "https://api.anthropic.com",
+			requestURL: "http://127.0.0.1:18080/v1/messages",
+			want:       "https://api.anthropic.com/v1/messages",
+		},
+		{
+			name:       "escaped paths",
+			baseURL:    "https://upstream.example/base%2Fsegment",
+			requestURL: "http://127.0.0.1:18080/v1/files/a%2Fb?download=true",
+			want:       "https://upstream.example/base%2Fsegment/v1/files/a%2Fb?download=true",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamURL string
+			transport := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				upstreamURL = request.URL.String()
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+					Request:    request,
+				}, nil
+			})
+			cfg := config.Config{Upstreams: map[string]config.UpstreamConfig{
+				"test-upstream": {
+					URL:    test.baseURL,
+					Auth:   config.AuthConfig{Mode: "none"},
+					Models: []config.ModelConfig{{ID: "test-model"}},
+				},
+			}}
+			table, err := router.New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := New(
+				&Runtime{LocalAPIKey: "local-key", Table: table},
+				transport,
+				slog.New(slog.NewTextHandler(io.Discard, nil)),
+				testLocalizer{},
+			)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				test.requestURL,
+				strings.NewReader(`{"model":"test-model"}`),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Authorization", "Bearer local-key")
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if upstreamURL != test.want {
+				t.Fatalf("upstream URL = %q, want %q", upstreamURL, test.want)
+			}
+		})
+	}
+}
+
 func TestHandlerRewritesAliasAndBearerKey(t *testing.T) {
 	t.Parallel()
 

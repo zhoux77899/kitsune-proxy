@@ -14,7 +14,7 @@ type Route struct {
 	PublicModel   string
 	UpstreamModel string
 	UpstreamName  string
-	Origin        *url.URL
+	BaseURL       *url.URL
 	AuthMode      string
 	APIKey        string
 }
@@ -37,12 +37,10 @@ func New(cfg config.Config) (*Table, error) {
 	models := make([]ModelInfo, 0)
 
 	for upstreamName, upstream := range cfg.Upstreams {
-		origin, err := url.Parse(upstream.URL)
+		baseURL, err := url.Parse(upstream.URL)
 		if err != nil {
-			return nil, fmt.Errorf("parse upstream %s origin: %w", upstreamName, err)
+			return nil, fmt.Errorf("parse upstream %s base URL: %w", upstreamName, err)
 		}
-		origin.Path = ""
-		origin.RawPath = ""
 
 		apiKey := ""
 		if upstream.Auth.APIKey != nil {
@@ -57,7 +55,7 @@ func New(cfg config.Config) (*Table, error) {
 				PublicModel:   publicName,
 				UpstreamModel: model.ID,
 				UpstreamName:  upstreamName,
-				Origin:        origin,
+				BaseURL:       baseURL,
 				AuthMode:      upstream.Auth.Mode,
 				APIKey:        apiKey,
 			}
