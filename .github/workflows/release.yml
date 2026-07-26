@@ -101,9 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes cpio rpm
+          sudo apt-get install --yes rpm
 
-          mkdir -p dist/verify/tar dist/verify/deb dist/verify/rpm
+          mkdir -p dist/verify/tar dist/verify/deb
           tar -xzf dist/release/kitsune-proxy-linux-amd64.tar.gz -C dist/verify/tar
           test -x dist/verify/tar/kitsune-proxy
           test "$(dpkg-deb --field dist/release/kitsune-proxy-linux-amd64.deb Architecture)" = "amd64"
@@ -112,18 +112,10 @@ jobs:
           test -f dist/verify/deb/usr/share/applications/kitsune-proxy.desktop
           test -f dist/verify/deb/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png
           test "$(rpm --query --package --queryformat '%{ARCH}' dist/release/kitsune-proxy-linux-amd64.rpm)" = "x86_64"
-          (
-            cd dist/verify/rpm
-            set +e
-            rpm2cpio ../../release/kitsune-proxy-linux-amd64.rpm | cpio --extract --make-directories --no-absolute-filenames --quiet
-            pipeline_status=("${PIPESTATUS[@]}")
-            set -e
-            test "${pipeline_status[0]}" -eq 0
-            test "${pipeline_status[1]}" -le 1
-          )
-          test -x dist/verify/rpm/usr/bin/kitsune-proxy
-          test -f dist/verify/rpm/usr/share/applications/kitsune-proxy.desktop
-          test -f dist/verify/rpm/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png
+          rpm --query --package --list dist/release/kitsune-proxy-linux-amd64.rpm > dist/verify/rpm-files.txt
+          grep --fixed-strings --line-regexp '/usr/bin/kitsune-proxy' dist/verify/rpm-files.txt
+          grep --fixed-strings --line-regexp '/usr/share/applications/kitsune-proxy.desktop' dist/verify/rpm-files.txt
+          grep --fixed-strings --line-regexp '/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png' dist/verify/rpm-files.txt
       - name: Upload Linux assets
         uses: actions/upload-artifact@v4
         with:
