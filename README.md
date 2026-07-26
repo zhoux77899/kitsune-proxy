@@ -34,14 +34,14 @@ translation.
 Agent
   |  Authorization: Bearer <Local API Key>
   |  POST /v1/messages
-  |  {"model":"openrouter-nemotron", ...}
+  |  {"model":"team-chat", ...}
   v
 http://127.0.0.1:18080/v1/messages
   |  exact alias lookup
   |  local key -> upstream key
-  |  "openrouter-nemotron" -> "nvidia/nemotron-3-ultra-550b-a55b:free"
+  |  "team-chat" -> "chat-model-v2"
   v
-https://openrouter.ai/api/v1/messages
+https://upstream.example.com/api/v1/messages
 ```
 
 Only two operations intentionally change an otherwise transparent request:
@@ -77,30 +77,30 @@ logging:
   level: info
 
 upstreams:
-  openrouter:
-    url: https://openrouter.ai/api
+  hosted-service:
+    url: https://upstream.example.com/api
     auth:
       mode: replace
-      api_key: sk-openrouter-key
+      api_key: upstream-secret
     models:
-      - id: nvidia/nemotron-3-ultra-550b-a55b:free
-        alias: openrouter-nemotron
+      - id: chat-model-v2
+        alias: team-chat
 
-  model-studio:
-    url: https://workspace-id.cn-beijing.maas.aliyuncs.com/apps/anthropic
+  secondary-service:
+    url: https://secondary.example.com/gateway
     auth:
       mode: replace
-      api_key: sk-model-studio-key
+      api_key: secondary-secret
     models:
-      - id: qwen3.7-plus
+      - id: reasoning-model-v1
 
-  ollama:
+  local-service:
     url: http://127.0.0.1:11434
     auth:
       mode: none
     models:
-      - id: llama3.3
-        alias: local-llama
+      - id: local-model-v1
+        alias: local-chat
 ```
 
 Never reuse an upstream credential as `server.api_key`:
@@ -113,13 +113,12 @@ Never reuse an upstream credential as `server.api_key`:
 and removes both supported inbound authentication headers before forwarding.
 An upstream `url` is an absolute HTTP or HTTPS base URL. It may include a path,
 but not userinfo, a query, or a fragment. Kitsune Proxy joins that base path to
-the Agent path with one slash: OpenRouter's `https://openrouter.ai/api` becomes
-`https://openrouter.ai/api/v1/messages`, while Model Studio's
-`https://workspace-id.cn-beijing.maas.aliyuncs.com/apps/anthropic` becomes
-`https://workspace-id.cn-beijing.maas.aliyuncs.com/apps/anthropic/v1/messages`.
-See the provider setup guides for
-[OpenRouter](https://openrouter.ai/docs/cookbook/coding-agents/claude-code-integration)
-and [Alibaba Cloud Model Studio](https://help.aliyun.com/zh/model-studio/anthropic-api-messages).
+the Agent path with one slash: `https://upstream.example.com/api` becomes
+`https://upstream.example.com/api/v1/messages`, while
+`https://secondary.example.com/gateway` becomes
+`https://secondary.example.com/gateway/v1/messages`. Consult your upstream
+service's documentation for its compatible base URL, request schema, and
+authentication requirements.
 
 ### Models and aliases
 
@@ -132,8 +131,8 @@ the same model ID, give at least the conflicting entries distinct aliases:
 
 ```yaml
 models:
-  - id: gpt-5
-    alias: provider-a-gpt-5
+  - id: chat-model-v2
+    alias: service-a-chat
 ```
 
 When alias and ID differ, Kitsune Proxy changes only the unique top-level JSON
@@ -167,7 +166,7 @@ curl http://127.0.0.1:18080/v1/models \
 curl http://127.0.0.1:18080/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer kitsune-generated-local-key" \
-  -d '{"model":"openai-gpt-5","input":"hello"}'
+  -d '{"model":"team-chat","input":"hello"}'
 ```
 
 Request bodies are limited to 64 MiB before and after gzip decompression.

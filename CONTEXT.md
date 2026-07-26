@@ -43,9 +43,10 @@ routes. Its name is used as `owned_by` in `/v1/models`.
 ### Upstream Base URL
 
 The absolute HTTP or HTTPS URL in `upstreams.<name>.url`. It may include a path,
-such as `https://openrouter.ai/api`. The Agent request path is appended with one
-joining slash, producing `https://openrouter.ai/api/v1/messages` for an inbound
-`/v1/messages` request. Userinfo, queries, and fragments are not allowed.
+such as `https://upstream.example.com/api`. The Agent request path is appended
+with one joining slash, producing
+`https://upstream.example.com/api/v1/messages` for an inbound `/v1/messages`
+request. Userinfo, queries, and fragments are not allowed.
 
 ### Upstream Model ID
 
