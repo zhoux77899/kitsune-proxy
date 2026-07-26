@@ -70,21 +70,7 @@ jobs:
       - run: go test ./...
       - name: Build Windows assets
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist/release | Out-Null
-          New-Item -ItemType Directory -Force dist/package | Out-Null
-
-          go build `
-            -trimpath `
-            -ldflags "-s -w -H=windowsgui" `
-            -o dist/release/kitsune-proxy-windows-amd64.exe `
-            ./cmd/kitsune-proxy
-
-          Copy-Item dist/release/kitsune-proxy-windows-amd64.exe dist/package/kitsune-proxy.exe
-          Copy-Item README.md, LICENSE -Destination dist/package
-          Compress-Archive `
-            -Path dist/package/* `
-            -DestinationPath dist/release/kitsune-proxy-windows-amd64.zip
+        run: ./packaging/windows/package.ps1 -OutputDirectory dist/release
       - name: Upload Windows assets
         uses: actions/upload-artifact@v4
         with:
@@ -108,18 +94,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist/release dist/package
+          version="${GITHUB_REF_NAME#v}"
+          bash packaging/linux/package.sh "${version}" dist/release
+      - name: Inspect Linux assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes cpio rpm
 
-          go build \
-            -trimpath \
-            -ldflags "-s -w" \
-            -o dist/release/kitsune-proxy-linux-amd64 \
-            ./cmd/kitsune-proxy
-
-          chmod 755 dist/release/kitsune-proxy-linux-amd64
-          cp dist/release/kitsune-proxy-linux-amd64 dist/package/kitsune-proxy
-          cp README.md LICENSE dist/package/
-          tar -C dist/package -czf dist/release/kitsune-proxy-linux-amd64.tar.gz .
+          mkdir -p dist/verify/tar dist/verify/deb dist/verify/rpm
+          tar -xzf dist/release/kitsune-proxy-linux-amd64.tar.gz -C dist/verify/tar
+          test -x dist/verify/tar/kitsune-proxy
+          test "$(dpkg-deb --field dist/release/kitsune-proxy-linux-amd64.deb Architecture)" = "amd64"
+          dpkg-deb --extract dist/release/kitsune-proxy-linux-amd64.deb dist/verify/deb
+          test -x dist/verify/deb/usr/bin/kitsune-proxy
+          test -f dist/verify/deb/usr/share/applications/kitsune-proxy.desktop
+          test -f dist/verify/deb/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png
+          test "$(rpm --query --package --queryformat '%{ARCH}' dist/release/kitsune-proxy-linux-amd64.rpm)" = "x86_64"
+          (
+            cd dist/verify/rpm
+            rpm2cpio ../../release/kitsune-proxy-linux-amd64.rpm | cpio --extract --make-directories --quiet
+          )
+          test -x dist/verify/rpm/usr/bin/kitsune-proxy
+          test -f dist/verify/rpm/usr/share/applications/kitsune-proxy.desktop
+          test -f dist/verify/rpm/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png
       - name: Upload Linux assets
         uses: actions/upload-artifact@v4
         with:
@@ -152,26 +151,45 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          binary="dist/release/kitsune-proxy-macos-${{ matrix.arch }}"
-          bundle="dist/Kitsune Proxy.app"
+          bash packaging/macos/package.sh "${version}" "${{ matrix.arch }}" dist/release
+      - name: Inspect macOS assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_directory="$(mktemp -d)"
+          device=""
+          cleanup() {
+            if [[ -n "${device}" ]]; then
+              hdiutil detach -quiet "${device}" || true
+            fi
+            rm -rf "${verify_directory}"
+          }
+          trap cleanup EXIT
 
-          mkdir -p dist/release "${bundle}/Contents/MacOS" "${bundle}/Contents/Resources"
-          go build -trimpath -ldflags "-s -w" -o "${binary}" ./cmd/kitsune-proxy
-          chmod 755 "${binary}"
+          ditto -x -k "dist/release/kitsune-proxy-macos-${{ matrix.arch }}.zip" "${verify_directory}/zip"
+          zip_bundle="${verify_directory}/zip/Kitsune Proxy.app"
+          test -x "${zip_bundle}/Contents/MacOS/kitsune-proxy"
+          plutil -lint "${zip_bundle}/Contents/Info.plist"
 
-          cp "${binary}" "${bundle}/Contents/MacOS/kitsune-proxy"
-          cp packaging/macos/Info.plist "${bundle}/Contents/Info.plist"
-          cp assets/generated/kitsune.icns "${bundle}/Contents/Resources/kitsune.icns"
-          chmod 755 "${bundle}/Contents/MacOS/kitsune-proxy"
-          plutil -replace CFBundleShortVersionString -string "${version}" "${bundle}/Contents/Info.plist"
+          mkdir -p "${verify_directory}/dmg"
+          device="$(hdiutil attach \
+            -readonly \
+            -nobrowse \
+            -mountpoint "${verify_directory}/dmg" \
+            "dist/release/kitsune-proxy-macos-${{ matrix.arch }}.dmg" |
+            awk '/^\/dev\// { print $1; exit }')"
+          dmg_bundle="${verify_directory}/dmg/Kitsune Proxy.app"
+          test -x "${dmg_bundle}/Contents/MacOS/kitsune-proxy"
+          test "$(readlink "${verify_directory}/dmg/Applications")" = "/Applications"
+          plutil -lint "${dmg_bundle}/Contents/Info.plist"
 
-          ditto \
-            -c \
-            -k \
-            --sequesterRsrc \
-            --keepParent \
-            "${bundle}" \
-            "dist/release/kitsune-proxy-macos-${{ matrix.arch }}.zip"
+          expected_architecture="${{ matrix.arch }}"
+          if [[ "${expected_architecture}" == "amd64" ]]; then
+            expected_architecture="x86_64"
+          fi
+          file "${dmg_bundle}/Contents/MacOS/kitsune-proxy" | grep -q "${expected_architecture}"
+          hdiutil detach -quiet "${device}"
+          device=""
       - name: Upload macOS assets
         uses: actions/upload-artifact@v4
         with:
@@ -190,6 +208,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
       - name: Download packaged assets
         uses: actions/download-artifact@v5
         with:
@@ -200,108 +223,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd release-assets
-
-          sha256sum kitsune-proxy-* > SHA256SUMS
-
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
           published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
-          release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
-          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${tag}"
 
-          asset_sha() {
-            awk -v name="$1" '$2 == name { print $1 }' SHA256SUMS
-          }
-
-          jq -n \
-            --arg version "${version}" \
-            --arg tag "${tag}" \
-            --arg published_at "${published_at}" \
-            --arg release_url "${release_url}" \
-            --arg windows_binary_url "${base_url}/kitsune-proxy-windows-amd64.exe" \
-            --arg windows_binary_sha "$(asset_sha kitsune-proxy-windows-amd64.exe)" \
-            --arg windows_archive_url "${base_url}/kitsune-proxy-windows-amd64.zip" \
-            --arg windows_archive_sha "$(asset_sha kitsune-proxy-windows-amd64.zip)" \
-            --arg linux_binary_url "${base_url}/kitsune-proxy-linux-amd64" \
-            --arg linux_binary_sha "$(asset_sha kitsune-proxy-linux-amd64)" \
-            --arg linux_archive_url "${base_url}/kitsune-proxy-linux-amd64.tar.gz" \
-            --arg linux_archive_sha "$(asset_sha kitsune-proxy-linux-amd64.tar.gz)" \
-            --arg macos_amd64_binary_url "${base_url}/kitsune-proxy-macos-amd64" \
-            --arg macos_amd64_binary_sha "$(asset_sha kitsune-proxy-macos-amd64)" \
-            --arg macos_amd64_archive_url "${base_url}/kitsune-proxy-macos-amd64.zip" \
-            --arg macos_amd64_archive_sha "$(asset_sha kitsune-proxy-macos-amd64.zip)" \
-            --arg macos_arm64_binary_url "${base_url}/kitsune-proxy-macos-arm64" \
-            --arg macos_arm64_binary_sha "$(asset_sha kitsune-proxy-macos-arm64)" \
-            --arg macos_arm64_archive_url "${base_url}/kitsune-proxy-macos-arm64.zip" \
-            --arg macos_arm64_archive_sha "$(asset_sha kitsune-proxy-macos-arm64.zip)" \
-            --arg source_zip_url "${source_url}.zip" \
-            --arg source_tar_url "${source_url}.tar.gz" \
-            '{
-              schema_version: 1,
-              version: $version,
-              tag: $tag,
-              published_at: $published_at,
-              release_url: $release_url,
-              platforms: {
-                "windows-amd64": {
-                  binary: {
-                    name: "kitsune-proxy-windows-amd64.exe",
-                    url: $windows_binary_url,
-                    sha256: $windows_binary_sha
-                  },
-                  archive: {
-                    name: "kitsune-proxy-windows-amd64.zip",
-                    url: $windows_archive_url,
-                    sha256: $windows_archive_sha
-                  }
-                },
-                "linux-amd64": {
-                  binary: {
-                    name: "kitsune-proxy-linux-amd64",
-                    url: $linux_binary_url,
-                    sha256: $linux_binary_sha
-                  },
-                  archive: {
-                    name: "kitsune-proxy-linux-amd64.tar.gz",
-                    url: $linux_archive_url,
-                    sha256: $linux_archive_sha
-                  }
-                },
-                "darwin-amd64": {
-                  binary: {
-                    name: "kitsune-proxy-macos-amd64",
-                    url: $macos_amd64_binary_url,
-                    sha256: $macos_amd64_binary_sha
-                  },
-                  archive: {
-                    name: "kitsune-proxy-macos-amd64.zip",
-                    url: $macos_amd64_archive_url,
-                    sha256: $macos_amd64_archive_sha
-                  }
-                },
-                "darwin-arm64": {
-                  binary: {
-                    name: "kitsune-proxy-macos-arm64",
-                    url: $macos_arm64_binary_url,
-                    sha256: $macos_arm64_binary_sha
-                  },
-                  archive: {
-                    name: "kitsune-proxy-macos-arm64.zip",
-                    url: $macos_arm64_archive_url,
-                    sha256: $macos_arm64_archive_sha
-                  }
-                }
-              },
-              source: {
-                zip: $source_zip_url,
-                tar_gz: $source_tar_url
-              }
-            }' > latest.json
-
-          sha256sum --check SHA256SUMS
-          jq empty latest.json
+          go run ./cmd/release-meta \
+            -assets-dir release-assets \
+            -base-url "${base_url}" \
+            -version "${version}" \
+            -published-at "${published_at}"
+          (
+            cd release-assets
+            sha256sum --check SHA256SUMS
+          )
       - name: Inspect release assets
         shell: bash
         run: |

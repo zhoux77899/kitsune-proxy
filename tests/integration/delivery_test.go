@@ -34,9 +34,13 @@ func TestDeliveryMetadataAndGeneratedIcons(t *testing.T) {
 		) {
 			t.Fatalf("%s does not check the generated Windows application resource", name)
 		}
-		if !strings.Contains(workflowText, "cp assets/generated/kitsune.icns") {
-			t.Fatalf("%s does not package the macOS application icon", name)
-		}
+	}
+	macOSPackager, err := os.ReadFile(filepath.Join(root, "packaging", "macos", "package.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(macOSPackager), "cp assets/generated/kitsune.icns") {
+		t.Fatal("shared macOS packager does not package the application icon")
 	}
 
 	plist, err := os.ReadFile(filepath.Join(root, "packaging", "macos", "Info.plist"))
@@ -101,4 +105,76 @@ func TestDeliveryMetadataAndGeneratedIcons(t *testing.T) {
 		}
 	}
 	t.Fatal("Windows application resource has no non-empty .rsrc section")
+}
+
+func TestLinuxPackageInstallsDesktopApplication(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+	desktop, err := os.ReadFile(filepath.Join(root, "packaging", "linux", "kitsune-proxy.desktop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range []string{
+		"[Desktop Entry]",
+		"Type=Application",
+		"Name=Kitsune Proxy",
+		"Exec=/usr/bin/kitsune-proxy",
+		"Icon=kitsune-proxy",
+		"Terminal=false",
+		"Categories=Network;Utility;",
+	} {
+		if !strings.Contains(string(desktop), entry+"\n") {
+			t.Errorf("Linux desktop entry does not contain %q", entry)
+		}
+	}
+
+	configuration, err := os.ReadFile(filepath.Join(root, "packaging", "linux", "nfpm.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var configurationNode yaml.Node
+	if err := yaml.Unmarshal(configuration, &configurationNode); err != nil {
+		t.Fatalf("nFPM configuration YAML: %v", err)
+	}
+	for _, destination := range []string{
+		"/usr/bin/kitsune-proxy",
+		"/usr/share/applications/kitsune-proxy.desktop",
+		"/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png",
+		"/usr/share/doc/kitsune-proxy/README.md",
+		"/usr/share/doc/kitsune-proxy/LICENSE",
+	} {
+		if !strings.Contains(string(configuration), "dst: "+destination) {
+			t.Errorf("nFPM configuration does not install %s", destination)
+		}
+	}
+}
+
+func TestDeliveryWorkflowsUseSharedPackagers(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join("..", "..")
+	for _, name := range []string{"ci.yml", "release.yml"} {
+		workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, packager := range []string{
+			"packaging/windows/package.ps1",
+			"packaging/linux/package.sh",
+			"packaging/macos/package.sh",
+		} {
+			if !strings.Contains(string(workflow), packager) {
+				t.Errorf("%s does not use shared packager %s", name, packager)
+			}
+		}
+	}
+
+	linuxPackager, err := os.ReadFile(filepath.Join(root, "packaging", "linux", "package.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(linuxPackager), "github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0") {
+		t.Fatal("Linux packager does not pin nFPM v2.47.0")
+	}
 }

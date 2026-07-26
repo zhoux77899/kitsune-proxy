@@ -157,6 +157,49 @@ curl http://127.0.0.1:18080/v1/responses \
 Request bodies are limited to 64 MiB before and after gzip decompression.
 Unknown models return 404; no fallback provider is selected.
 
+## Install
+
+Download packages from the [GitHub Releases](https://github.com/zhoux77899/kitsune-proxy/releases)
+page. Verify downloads with `SHA256SUMS` when integrity matters.
+
+### Windows
+
+Download `kitsune-proxy-windows-amd64.exe` to run the application directly, or
+use `kitsune-proxy-windows-amd64.zip` when you also want the README and license.
+
+### Linux
+
+Debian and Ubuntu users can install the DEB package:
+
+```bash
+sudo apt install ./kitsune-proxy-linux-amd64.deb
+```
+
+Fedora and other RPM-based distributions can install the RPM package:
+
+```bash
+sudo dnf install ./kitsune-proxy-linux-amd64.rpm
+```
+
+Both system packages add Kitsune Proxy to the desktop application menu. They do
+not start it automatically; launch it once and use the tray's **Start at Login**
+preference if desired. Other amd64 distributions can extract
+`kitsune-proxy-linux-amd64.tar.gz` and run the executable inside it.
+
+### macOS
+
+Choose `amd64` for an Intel Mac or `arm64` for Apple silicon. The ZIP contains
+`Kitsune Proxy.app` directly. The DMG presents the same application bundle with
+an Applications shortcut for drag-and-drop installation.
+
+The macOS application is not signed or notarized. If Gatekeeper blocks the
+first launch, Control-click the application, choose **Open**, and confirm it.
+
+`latest.json` is a versioned update-manifest contract. It points to one
+canonical ZIP or tarball per platform and reserves an empty `signature` string
+for future Ed25519/Minisign verification. Empty signatures must never be
+accepted by a future updater; automatic updates are not implemented yet.
+
 ## Tray and reload
 
 The tray menu shows listener state, address, model count, and logging
@@ -226,10 +269,11 @@ DPI manifest. Go automatically links the generated `rsrc_windows_amd64.syso`
 resources into Windows amd64 executables.
 
 Windows release builds use `-ldflags "-H=windowsgui"`. macOS releases package
-the generated ICNS in unsigned `.app` bundles with `LSUIElement=1`. Linux
-releases remain raw ELF binaries without desktop-entry packaging. The project
-intentionally does not include installers, signing, notarization, or automatic
-updates.
+the generated ICNS in unsigned ZIP and DMG `.app` bundles with `LSUIElement=1`.
+Linux releases include a portable tarball plus DEB and RPM packages with a
+desktop entry. Release assets never expose bare Linux or macOS executables. The
+project intentionally does not include Apple signing, notarization, or active
+automatic updates.
 
 ## Security notes
 

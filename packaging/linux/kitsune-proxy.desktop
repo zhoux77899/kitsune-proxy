@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Kitsune Proxy
+Comment=Route local AI model requests to configured upstreams
+Exec=/usr/bin/kitsune-proxy
+Icon=kitsune-proxy
+Terminal=false
+Categories=Network;Utility;
+StartupNotify=false

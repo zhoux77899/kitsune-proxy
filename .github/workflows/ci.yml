@@ -56,17 +56,13 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - run: go test ./...
-      - name: Build ZIP
+      - name: Build Windows assets
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force dist/package | Out-Null
-          go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/package/kitsune-proxy.exe ./cmd/kitsune-proxy
-          Copy-Item README.md, LICENSE -Destination dist/package
-          Compress-Archive -Path dist/package/* -DestinationPath dist/kitsune-proxy-windows-amd64.zip
+        run: ./packaging/windows/package.ps1 -OutputDirectory dist
       - uses: actions/upload-artifact@v4
         with:
           name: kitsune-proxy-windows-amd64
-          path: dist/kitsune-proxy-windows-amd64.zip
+          path: dist/kitsune-proxy-windows-amd64.*
           if-no-files-found: error
 
   package-linux:
@@ -79,17 +75,39 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - run: go test ./...
-      - name: Build tarball
+      - name: Build Linux assets
+        shell: bash
+        run: bash packaging/linux/package.sh 0.0.0 dist
+      - name: Inspect Linux assets
         shell: bash
         run: |
-          mkdir -p dist/package
-          go build -trimpath -ldflags "-s -w" -o dist/package/kitsune-proxy ./cmd/kitsune-proxy
-          cp README.md LICENSE dist/package/
-          tar -C dist/package -czf dist/kitsune-proxy-linux-amd64.tar.gz .
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes cpio rpm
+
+          mkdir -p dist/verify/tar dist/verify/deb dist/verify/rpm
+          tar -xzf dist/kitsune-proxy-linux-amd64.tar.gz -C dist/verify/tar
+          test -x dist/verify/tar/kitsune-proxy
+          test "$(dpkg-deb --field dist/kitsune-proxy-linux-amd64.deb Architecture)" = "amd64"
+          dpkg-deb --extract dist/kitsune-proxy-linux-amd64.deb dist/verify/deb
+          test -x dist/verify/deb/usr/bin/kitsune-proxy
+          test -f dist/verify/deb/usr/share/applications/kitsune-proxy.desktop
+          test -f dist/verify/deb/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png
+          test "$(rpm --query --package --queryformat '%{ARCH}' dist/kitsune-proxy-linux-amd64.rpm)" = "x86_64"
+          (
+            cd dist/verify/rpm
+            rpm2cpio ../../kitsune-proxy-linux-amd64.rpm | cpio --extract --make-directories --quiet
+          )
+          test -x dist/verify/rpm/usr/bin/kitsune-proxy
+          test -f dist/verify/rpm/usr/share/applications/kitsune-proxy.desktop
+          test -f dist/verify/rpm/usr/share/icons/hicolor/256x256/apps/kitsune-proxy.png
       - uses: actions/upload-artifact@v4
         with:
           name: kitsune-proxy-linux-amd64
-          path: dist/kitsune-proxy-linux-amd64.tar.gz
+          path: |
+            dist/kitsune-proxy-linux-amd64.tar.gz
+            dist/kitsune-proxy-linux-amd64.deb
+            dist/kitsune-proxy-linux-amd64.rpm
           if-no-files-found: error
 
   package-macos:
@@ -110,18 +128,51 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
       - run: go test ./...
-      - name: Build app bundle
+      - name: Build macOS assets
+        shell: bash
+        run: bash packaging/macos/package.sh 0.0.0 "${{ matrix.arch }}" dist
+      - name: Inspect macOS assets
         shell: bash
         run: |
-          bundle="dist/Kitsune Proxy.app"
-          mkdir -p "${bundle}/Contents/MacOS" "${bundle}/Contents/Resources"
-          go build -trimpath -ldflags "-s -w" -o "${bundle}/Contents/MacOS/kitsune-proxy" ./cmd/kitsune-proxy
-          cp packaging/macos/Info.plist "${bundle}/Contents/Info.plist"
-          cp assets/generated/kitsune.icns "${bundle}/Contents/Resources/kitsune.icns"
-          chmod 755 "${bundle}/Contents/MacOS/kitsune-proxy"
-          ditto -c -k --sequesterRsrc --keepParent "${bundle}" "dist/kitsune-proxy-macos-${{ matrix.arch }}.zip"
+          set -euo pipefail
+          verify_directory="$(mktemp -d)"
+          device=""
+          cleanup() {
+            if [[ -n "${device}" ]]; then
+              hdiutil detach -quiet "${device}" || true
+            fi
+            rm -rf "${verify_directory}"
+          }
+          trap cleanup EXIT
+
+          ditto -x -k "dist/kitsune-proxy-macos-${{ matrix.arch }}.zip" "${verify_directory}/zip"
+          zip_bundle="${verify_directory}/zip/Kitsune Proxy.app"
+          test -x "${zip_bundle}/Contents/MacOS/kitsune-proxy"
+          plutil -lint "${zip_bundle}/Contents/Info.plist"
+
+          mkdir -p "${verify_directory}/dmg"
+          device="$(hdiutil attach \
+            -readonly \
+            -nobrowse \
+            -mountpoint "${verify_directory}/dmg" \
+            "dist/kitsune-proxy-macos-${{ matrix.arch }}.dmg" |
+            awk '/^\/dev\// { print $1; exit }')"
+          dmg_bundle="${verify_directory}/dmg/Kitsune Proxy.app"
+          test -x "${dmg_bundle}/Contents/MacOS/kitsune-proxy"
+          test "$(readlink "${verify_directory}/dmg/Applications")" = "/Applications"
+          plutil -lint "${dmg_bundle}/Contents/Info.plist"
+
+          expected_architecture="${{ matrix.arch }}"
+          if [[ "${expected_architecture}" == "amd64" ]]; then
+            expected_architecture="x86_64"
+          fi
+          file "${dmg_bundle}/Contents/MacOS/kitsune-proxy" | grep -q "${expected_architecture}"
+          hdiutil detach -quiet "${device}"
+          device=""
       - uses: actions/upload-artifact@v4
         with:
           name: kitsune-proxy-macos-${{ matrix.arch }}
-          path: dist/kitsune-proxy-macos-${{ matrix.arch }}.zip
+          path: |
+            dist/kitsune-proxy-macos-${{ matrix.arch }}.zip
+            dist/kitsune-proxy-macos-${{ matrix.arch }}.dmg
           if-no-files-found: error
