@@ -96,7 +96,12 @@ jobs:
           test "$(rpm --query --package --queryformat '%{ARCH}' dist/kitsune-proxy-linux-amd64.rpm)" = "x86_64"
           (
             cd dist/verify/rpm
+            set +e
             rpm2cpio ../../kitsune-proxy-linux-amd64.rpm | cpio --extract --make-directories --no-absolute-filenames --quiet
+            pipeline_status=("${PIPESTATUS[@]}")
+            set -e
+            test "${pipeline_status[0]}" -eq 0
+            test "${pipeline_status[1]}" -le 1
           )
           test -x dist/verify/rpm/usr/bin/kitsune-proxy
           test -f dist/verify/rpm/usr/share/applications/kitsune-proxy.desktop
