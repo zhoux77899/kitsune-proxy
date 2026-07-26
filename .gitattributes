@@ -1,0 +1,3 @@
+packaging/linux/*.desktop text eol=lf
+packaging/linux/*.sh text eol=lf
+packaging/linux/*.yaml text eol=lf
