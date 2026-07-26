@@ -33,14 +33,15 @@ translation.
 ```text
 Agent
   |  Authorization: Bearer <Local API Key>
-  |  {"model":"openai-gpt-5", ...}
+  |  POST /v1/messages
+  |  {"model":"openrouter-nemotron", ...}
   v
-http://127.0.0.1:18080
+http://127.0.0.1:18080/v1/messages
   |  exact alias lookup
   |  local key -> upstream key
-  |  "openai-gpt-5" -> "gpt-5"
+  |  "openrouter-nemotron" -> "nvidia/nemotron-3-ultra-550b-a55b:free"
   v
-https://api.openai.com
+https://openrouter.ai/api/v1/messages
 ```
 
 Only two operations intentionally change an otherwise transparent request:
@@ -48,10 +49,11 @@ Only two operations intentionally change an otherwise transparent request:
 1. The Agent's Local API Key is replaced with the selected Upstream API Key.
 2. A Model Alias is minimally rewritten to the corresponding Upstream Model ID.
 
-Method, path, query, compatible headers, status, response bytes, SSE flushing,
-and cancellation are preserved. Kitsune Proxy does not convert provider API
-formats, so the selected upstream must understand the Agent's request schema
-and authentication header type.
+Method, Agent path suffix, query, compatible headers, status, response bytes,
+SSE flushing, and cancellation are preserved. The selected Upstream Base URL
+replaces the local base URL before the Agent path is appended. Kitsune Proxy
+does not convert provider API formats, so the selected upstream must understand
+the Agent's request schema and authentication header type.
 
 ## Configuration
 
@@ -75,15 +77,22 @@ logging:
   level: info
 
 upstreams:
-  openai:
-    url: https://api.openai.com
+  openrouter:
+    url: https://openrouter.ai/api
     auth:
       mode: replace
-      api_key: sk-upstream-key
+      api_key: sk-openrouter-key
     models:
-      - id: gpt-5
-        alias: openai-gpt-5
-      - id: text-embedding-3-small
+      - id: nvidia/nemotron-3-ultra-550b-a55b:free
+        alias: openrouter-nemotron
+
+  model-studio:
+    url: https://workspace-id.cn-beijing.maas.aliyuncs.com/apps/anthropic
+    auth:
+      mode: replace
+      api_key: sk-model-studio-key
+    models:
+      - id: qwen3.7-plus
 
   ollama:
     url: http://127.0.0.1:11434
@@ -102,8 +111,15 @@ Never reuse an upstream credential as `server.api_key`:
 
 `auth.mode: replace` requires an upstream key. `auth.mode: none` forbids a key
 and removes both supported inbound authentication headers before forwarding.
-Upstream URLs must be HTTP or HTTPS origins without userinfo, non-root paths,
-queries, or fragments.
+An upstream `url` is an absolute HTTP or HTTPS base URL. It may include a path,
+but not userinfo, a query, or a fragment. Kitsune Proxy joins that base path to
+the Agent path with one slash: OpenRouter's `https://openrouter.ai/api` becomes
+`https://openrouter.ai/api/v1/messages`, while Model Studio's
+`https://workspace-id.cn-beijing.maas.aliyuncs.com/apps/anthropic` becomes
+`https://workspace-id.cn-beijing.maas.aliyuncs.com/apps/anthropic/v1/messages`.
+See the provider setup guides for
+[OpenRouter](https://openrouter.ai/docs/cookbook/coding-agents/claude-code-integration)
+and [Alibaba Cloud Model Studio](https://help.aliyun.com/zh/model-studio/anthropic-api-messages).
 
 ### Models and aliases
 

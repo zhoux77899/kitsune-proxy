@@ -67,9 +67,7 @@ func New(runtime *Runtime, transport http.RoundTripper, logger *slog.Logger, loc
 	handler.reverseProxy = &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			route := request.In.Context().Value(routeContextKey{}).(router.Route)
-			request.Out.URL.Scheme = route.Origin.Scheme
-			request.Out.URL.Host = route.Origin.Host
-			request.Out.Host = route.Origin.Host
+			request.SetURL(route.BaseURL)
 			request.Out.RequestURI = ""
 			request.Out.Header.Del("Forwarded")
 			request.Out.Header.Del("X-Forwarded-For")

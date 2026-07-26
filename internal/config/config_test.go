@@ -169,6 +169,73 @@ upstreams:
 	}
 }
 
+func TestLoadAcceptsUpstreamBaseURLPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		baseURL string
+	}{
+		{name: "OpenRouter", baseURL: "https://openrouter.ai/api"},
+		{name: "Alibaba Model Studio", baseURL: "https://workspace.cn-beijing.maas.aliyuncs.com/apps/anthropic"},
+		{name: "trailing slash", baseURL: "https://openrouter.ai/api/"},
+	}
+	template := `version: 1
+server: {port: 18080, api_key: kitsune-local}
+logging: {level: info}
+upstreams:
+  test-upstream:
+    url: BASE_URL
+    auth: {mode: none}
+    models: [{id: model}]
+`
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := Load(writeConfig(t, strings.Replace(template, "BASE_URL", test.baseURL, 1)))
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got := cfg.Upstreams["test-upstream"].URL; got != test.baseURL {
+				t.Fatalf("upstream URL = %q", got)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsUnsafeUpstreamBaseURLs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		baseURL string
+	}{
+		{name: "userinfo", baseURL: "https://user:password@example.com/api"},
+		{name: "query", baseURL: "https://example.com/api?version=1"},
+		{name: "fragment", baseURL: "https://example.com/api#section"},
+		{name: "empty fragment", baseURL: "https://example.com/api#"},
+		{name: "unsupported scheme", baseURL: "ftp://example.com/api"},
+	}
+	template := `version: 1
+server: {port: 18080, api_key: kitsune-local}
+logging: {level: info}
+upstreams:
+  invalid:
+    url: BASE_URL
+    auth: {mode: none}
+    models: [{id: model}]
+`
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, strings.Replace(template, "BASE_URL", test.baseURL, 1)))
+			if err == nil {
+				t.Fatal("Load() error = nil, want validation error")
+			}
+		})
+	}
+}
+
 func TestLoadRejectsInvalidConfigurationsWithoutExposingSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -257,30 +324,6 @@ upstreams:
     url: https://second.example
     auth: {mode: none}
     models: [{id: shared}]
-`,
-		},
-		{
-			name: "origin path",
-			yaml: `version: 1
-server: {port: 18080, api_key: kitsune-local}
-logging: {level: info}
-upstreams:
-  invalid:
-    url: https://example.com/v1
-    auth: {mode: none}
-    models: [{id: model}]
-`,
-		},
-		{
-			name: "empty fragment",
-			yaml: `version: 1
-server: {port: 18080, api_key: kitsune-local}
-logging: {level: info}
-upstreams:
-  invalid:
-    url: https://example.com/#
-    auth: {mode: none}
-    models: [{id: model}]
 `,
 		},
 	}

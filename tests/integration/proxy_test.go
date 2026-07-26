@@ -52,7 +52,8 @@ func TestLoopbackApplicationRoutesAndReloadsCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := availablePort(t)
-	writeConfig(t, paths.ConfigFile, port, upstream.URL, "local-one", "upstream-one")
+	upstreamBaseURL := upstream.URL + "/provider-base"
+	writeConfig(t, paths.ConfigFile, port, upstreamBaseURL, "local-one", "upstream-one")
 
 	logs := logging.New(paths.LogsDir)
 	controller := app.New(paths, logs, i18n.New(i18n.English), app.Options{
@@ -93,7 +94,7 @@ func TestLoopbackApplicationRoutesAndReloadsCredentials(t *testing.T) {
 		t.Fatalf("response = %d %#v %q", response.StatusCode, response.Header, responseBody)
 	}
 	first := <-captured
-	if first.path != "/v1/responses" || first.query != "preserve=yes" {
+	if first.path != "/provider-base/v1/responses" || first.query != "preserve=yes" {
 		t.Fatalf("upstream target = %#v", first)
 	}
 	if first.authorization != "Bearer upstream-one" {
@@ -103,7 +104,7 @@ func TestLoopbackApplicationRoutesAndReloadsCredentials(t *testing.T) {
 		t.Fatalf("upstream body = %q, want %q", first.body, want)
 	}
 
-	writeConfig(t, paths.ConfigFile, port, upstream.URL, "local-two", "upstream-two")
+	writeConfig(t, paths.ConfigFile, port, upstreamBaseURL, "local-two", "upstream-two")
 	if err := controller.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +119,9 @@ func TestLoopbackApplicationRoutesAndReloadsCredentials(t *testing.T) {
 		t.Fatalf("new key status = %d", newKeyResponse.StatusCode)
 	}
 	second := <-captured
+	if second.path != "/provider-base/v1/responses" || second.query != "preserve=yes" {
+		t.Fatalf("reloaded upstream target = %#v", second)
+	}
 	if second.authorization != "Bearer upstream-two" {
 		t.Fatalf("reloaded upstream authorization = %q", second.authorization)
 	}

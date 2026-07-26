@@ -10,11 +10,13 @@ forwarding an Agent request to its upstream.
 2. Kitsune Proxy authenticates supported inbound headers with the Local API Key.
 3. The router resolves the exact Public Model Name from the unique top-level
    `model` string.
-4. The proxy replaces or removes supported authentication headers according to
+4. The proxy replaces the local base URL with the route's Upstream Base URL and
+   appends the Agent request path.
+5. The proxy replaces or removes supported authentication headers according to
    the route.
-5. If the route uses a distinct Model Alias, the proxy minimally replaces it
+6. If the route uses a distinct Model Alias, the proxy minimally replaces it
    with the Upstream Model ID.
-6. The upstream response is streamed back without schema conversion.
+7. The upstream response is streamed back without schema conversion.
 
 ## Glossary
 
@@ -35,8 +37,15 @@ Avoid: local key, Agent key.
 
 ### Upstream
 
-A named HTTP or HTTPS origin, authentication rule, and non-empty set of model
+A named HTTP or HTTPS base URL, authentication rule, and non-empty set of model
 routes. Its name is used as `owned_by` in `/v1/models`.
+
+### Upstream Base URL
+
+The absolute HTTP or HTTPS URL in `upstreams.<name>.url`. It may include a path,
+such as `https://openrouter.ai/api`. The Agent request path is appended with one
+joining slash, producing `https://openrouter.ai/api/v1/messages` for an inbound
+`/v1/messages` request. Userinfo, queries, and fragments are not allowed.
 
 ### Upstream Model ID
 
@@ -89,6 +98,8 @@ of `config.yaml` and does not affect a Snapshot.
 - Every Public Model Name resolves to exactly one Upstream Model ID.
 - Authentication finishes before the business request body is read.
 - A Local API Key never crosses the upstream seam.
+- The outbound URL uses the selected Upstream Base URL followed by the Agent
+  request path, preserving escaped path bytes and the Agent query.
 - No route fallback, prefix match, glob, protocol conversion, or WebSocket
   forwarding exists.
 - Logs never contain credentials, header values, query strings, bodies, or full
