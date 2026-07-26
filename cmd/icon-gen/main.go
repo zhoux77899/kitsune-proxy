@@ -154,6 +154,9 @@ func encodeWindowsResource(ico []byte) ([]byte, error) {
 	if err := resources.SetIcon(winres.ID(1), icon); err != nil {
 		return nil, fmt.Errorf("set application icon: %w", err)
 	}
+	resources.SetManifest(winres.AppManifest{
+		DPIAwareness: winres.DPIPerMonitorV2,
+	})
 
 	var output bytes.Buffer
 	if err := resources.WriteObject(&output, winres.ArchAMD64); err != nil {

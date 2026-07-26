@@ -87,6 +87,16 @@ func TestEncodeWindowsResourceIsDeterministicAMD64COFF(t *testing.T) {
 		t.Fatal("Windows resource output is not deterministic")
 	}
 
+	manifestMarkers := [][]byte{
+		[]byte(`<dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>`),
+		[]byte(`<dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">permonitorv2,system</dpiAwareness>`),
+	}
+	for _, marker := range manifestMarkers {
+		if !bytes.Contains(first, marker) {
+			t.Fatalf("Windows resource does not contain DPI manifest marker %q", marker)
+		}
+	}
+
 	object, err := pe.NewFile(bytes.NewReader(first))
 	if err != nil {
 		t.Fatalf("open Windows resource as COFF: %v", err)

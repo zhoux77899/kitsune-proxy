@@ -32,7 +32,7 @@ func TestDeliveryMetadataAndGeneratedIcons(t *testing.T) {
 			workflowText,
 			"git diff --exit-code -- assets/generated cmd/kitsune-proxy/rsrc_windows_amd64.syso",
 		) {
-			t.Fatalf("%s does not check the generated Windows application icon resource", name)
+			t.Fatalf("%s does not check the generated Windows application resource", name)
 		}
 		if !strings.Contains(workflowText, "cp assets/generated/kitsune.icns") {
 			t.Fatalf("%s does not package the macOS application icon", name)
@@ -94,5 +94,5 @@ func TestDeliveryMetadataAndGeneratedIcons(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("Windows application icon resource has no non-empty .rsrc section")
+	t.Fatal("Windows application resource has no non-empty .rsrc section")
 }

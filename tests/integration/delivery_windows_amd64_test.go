@@ -12,7 +12,7 @@ import (
 	"github.com/tc-hib/winres"
 )
 
-func TestWindowsExecutableContainsApplicationIcon(t *testing.T) {
+func TestWindowsExecutableContainsApplicationResources(t *testing.T) {
 	root := filepath.Join("..", "..")
 	executable := filepath.Join(t.TempDir(), "kitsune-proxy.exe")
 	goBinary := filepath.Join(runtime.GOROOT(), "bin", "go.exe")
@@ -42,6 +42,18 @@ func TestWindowsExecutableContainsApplicationIcon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load executable resources: %v", err)
 	}
+	manifestXML := resources.Get(winres.RT_MANIFEST, winres.ID(1), winres.LCIDDefault)
+	if len(manifestXML) == 0 {
+		t.Fatal("load application manifest resource: resource not found")
+	}
+	manifest, err := winres.AppManifestFromXML(manifestXML)
+	if err != nil {
+		t.Fatalf("parse application manifest resource: %v", err)
+	}
+	if manifest.DPIAwareness != winres.DPIPerMonitorV2 {
+		t.Fatalf("DPI awareness = %v, want per-monitor v2", manifest.DPIAwareness)
+	}
+
 	icon, err := resources.GetIcon(winres.ID(1))
 	if err != nil {
 		t.Fatalf("load application icon resource: %v", err)
