@@ -212,8 +212,9 @@ go fmt ./...
 
 `assets/kitsune.svg` is the only icon source. `go run ./cmd/icon-gen`
 reproducibly creates the embedded tray PNG and ICO, the macOS ICNS, and the
-Windows amd64 COFF resource. Go automatically links the generated
-`rsrc_windows_amd64.syso` application icon into Windows amd64 executables.
+Windows amd64 COFF resource containing the application icon and a per-monitor
+V2 DPI manifest. Go automatically links the generated
+`rsrc_windows_amd64.syso` resources into Windows amd64 executables.
 
 Windows release builds use `-ldflags "-H=windowsgui"`. macOS releases package
 the generated ICNS in unsigned `.app` bundles with `LSUIElement=1`. Linux
