@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -939,11 +938,4 @@ func newTestHandler(t *testing.T, origin, authMode, upstreamKey string, models .
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return New(&Runtime{LocalAPIKey: "local-key", Table: table}, nil, logger, testLocalizer{})
-}
-
-func decodeJSON(t *testing.T, data []byte, target any) {
-	t.Helper()
-	if err := json.Unmarshal(data, target); err != nil {
-		t.Fatal(err)
-	}
 }
