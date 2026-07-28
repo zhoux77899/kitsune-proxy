@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,6 +52,40 @@ type Handler struct {
 
 type routeContextKey struct{}
 
+type routeTransport struct {
+	verified http.RoundTripper
+	insecure http.RoundTripper
+}
+
+func newRouteTransport(base http.RoundTripper) *routeTransport {
+	if base == nil {
+		base = DefaultTransport()
+	}
+
+	insecure := base
+	if transport, ok := base.(*http.Transport); ok {
+		insecureTransport := transport.Clone()
+		tlsConfig := insecureTransport.TLSClientConfig.Clone()
+		if tlsConfig == nil {
+			tlsConfig = &tls.Config{}
+		}
+		// This transport is selected only for an upstream that explicitly opts out.
+		tlsConfig.InsecureSkipVerify = true
+		insecureTransport.TLSClientConfig = tlsConfig
+		insecure = insecureTransport
+	}
+
+	return &routeTransport{verified: base, insecure: insecure}
+}
+
+func (t *routeTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	route, ok := request.Context().Value(routeContextKey{}).(router.Route)
+	if ok && route.SkipTLSVerify {
+		return t.insecure.RoundTrip(request)
+	}
+	return t.verified.RoundTrip(request)
+}
+
 // New creates a handler. A nil runtime keeps the handler unavailable until Update.
 func New(runtime *Runtime, transport http.RoundTripper, logger *slog.Logger, localizer Localizer) *Handler {
 	if logger == nil {
@@ -60,9 +95,7 @@ func New(runtime *Runtime, transport http.RoundTripper, logger *slog.Logger, loc
 	if runtime != nil {
 		handler.runtime.Store(runtime)
 	}
-	if transport == nil {
-		transport = DefaultTransport()
-	}
+	transport = newRouteTransport(transport)
 
 	handler.reverseProxy = &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {

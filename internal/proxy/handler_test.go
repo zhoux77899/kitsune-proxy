@@ -5,9 +5,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"crypto/tls"
 	"errors"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -37,28 +38,28 @@ func TestHandlerReplacesLocalBaseURLWithUpstreamBaseURL(t *testing.T) {
 		want       string
 	}{
 		{
-			name:       "OpenRouter",
-			baseURL:    "https://openrouter.ai/api",
+			name:       "single base path",
+			baseURL:    "https://upstream.example/api",
 			requestURL: "http://127.0.0.1:18080/v1/messages?beta=true",
-			want:       "https://openrouter.ai/api/v1/messages?beta=true",
+			want:       "https://upstream.example/api/v1/messages?beta=true",
 		},
 		{
-			name:       "Alibaba Model Studio",
-			baseURL:    "https://workspace.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+			name:       "nested base path",
+			baseURL:    "https://gateway.example/apps/messages",
 			requestURL: "http://127.0.0.1:18080/v1/messages",
-			want:       "https://workspace.cn-beijing.maas.aliyuncs.com/apps/anthropic/v1/messages",
+			want:       "https://gateway.example/apps/messages/v1/messages",
 		},
 		{
 			name:       "trailing slash",
-			baseURL:    "https://openrouter.ai/api/",
+			baseURL:    "https://upstream.example/api/",
 			requestURL: "http://127.0.0.1:18080/v1/messages",
-			want:       "https://openrouter.ai/api/v1/messages",
+			want:       "https://upstream.example/api/v1/messages",
 		},
 		{
 			name:       "root base URL",
-			baseURL:    "https://api.anthropic.com",
+			baseURL:    "https://upstream.example",
 			requestURL: "http://127.0.0.1:18080/v1/messages",
-			want:       "https://api.anthropic.com/v1/messages",
+			want:       "https://upstream.example/v1/messages",
 		},
 		{
 			name:       "escaped paths",
@@ -156,9 +157,9 @@ func TestHandlerRewritesAliasAndBearerKey(t *testing.T) {
 	defer upstream.Close()
 
 	handler := newTestHandler(t, upstream.URL, "replace", "upstream-key", config.ModelConfig{
-		ID: "gpt-5", Alias: "provider-a-gpt-5",
+		ID: "chat-model-v2", Alias: "provider-a-chat",
 	})
-	body := "{\n  \"model\" : \"provider-a-gpt-5\",\n  \"input\": 1.0\n}"
+	body := "{\n  \"model\" : \"provider-a-chat\",\n  \"input\": 1.0\n}"
 	request := httptest.NewRequest(http.MethodPost, "http://kitsune.local/v1/responses?trace=no-log", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer local-key")
@@ -186,7 +187,7 @@ func TestHandlerRewritesAliasAndBearerKey(t *testing.T) {
 	if got.proxyAuthorization != "" || got.forwardedFor != "" {
 		t.Fatalf("proxy-only headers reached upstream: %#v", got)
 	}
-	wantBody := "{\n  \"model\" : \"gpt-5\",\n  \"input\": 1.0\n}"
+	wantBody := "{\n  \"model\" : \"chat-model-v2\",\n  \"input\": 1.0\n}"
 	if got.body != wantBody {
 		t.Fatalf("body = %q, want %q", got.body, wantBody)
 	}
@@ -744,6 +745,153 @@ func TestHandlerLogsNeverContainCredentialsHeadersBodiesOrQueries(t *testing.T) 
 	}
 }
 
+func TestRouteTransportSelectsAdapterFromRoutePolicy(t *testing.T) {
+	t.Parallel()
+
+	verifiedCalls := 0
+	insecureCalls := 0
+	transport := &routeTransport{
+		verified: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			verifiedCalls++
+			return transportResponse(request, "verified"), nil
+		}),
+		insecure: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			insecureCalls++
+			return transportResponse(request, "insecure"), nil
+		}),
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "https://upstream.example", nil)
+	request = request.WithContext(context.WithValue(request.Context(), routeContextKey{}, router.Route{}))
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if got := response.Header.Get("X-Transport"); got != "verified" {
+		t.Fatalf("strict route transport = %q, want verified", got)
+	}
+
+	request = request.WithContext(context.WithValue(request.Context(), routeContextKey{}, router.Route{SkipTLSVerify: true}))
+	response, err = transport.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if got := response.Header.Get("X-Transport"); got != "insecure" {
+		t.Fatalf("skip-verify route transport = %q, want insecure", got)
+	}
+	if verifiedCalls != 1 || insecureCalls != 1 {
+		t.Fatalf("transport calls = verified %d, insecure %d; want one each", verifiedCalls, insecureCalls)
+	}
+}
+
+func TestNewRouteTransportClonesHTTPTransportForSkippedVerification(t *testing.T) {
+	t.Parallel()
+
+	base := DefaultTransport()
+	base.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: "internal.example",
+	}
+	transport := newRouteTransport(base)
+	insecure, ok := transport.insecure.(*http.Transport)
+	if !ok {
+		t.Fatalf("insecure transport = %T, want *http.Transport", transport.insecure)
+	}
+	if transport.verified != base {
+		t.Fatal("verified transport did not preserve the injected base")
+	}
+	if insecure == base {
+		t.Fatal("insecure transport reused the verified connection pool")
+	}
+	if base.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("verified transport was mutated")
+	}
+	if insecure.TLSClientConfig == base.TLSClientConfig {
+		t.Fatal("insecure transport reused the verified TLS config")
+	}
+	if !insecure.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("insecure transport did not skip TLS verification")
+	}
+	if insecure.TLSClientConfig.MinVersion != tls.VersionTLS12 || insecure.TLSClientConfig.ServerName != "internal.example" {
+		t.Fatalf("insecure TLS config did not preserve base settings: %#v", insecure.TLSClientConfig)
+	}
+}
+
+func TestHandlerIsolatesPerUpstreamTLSVerification(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("X-Upstream-TLS", "self-signed")
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte("forwarded over TLS"))
+	}))
+	upstream.Config.ErrorLog = log.New(io.Discard, "", 0)
+	upstream.StartTLS()
+	defer upstream.Close()
+
+	cfg := config.Config{Upstreams: map[string]config.UpstreamConfig{
+		"internal": {
+			URL:    upstream.URL,
+			TLS:    config.TLSConfig{SkipVerify: true},
+			Auth:   config.AuthConfig{Mode: "none"},
+			Models: []config.ModelConfig{{ID: "internal-model"}},
+		},
+		"strict": {
+			URL:    upstream.URL,
+			Auth:   config.AuthConfig{Mode: "none"},
+			Models: []config.ModelConfig{{ID: "strict-model"}},
+		},
+	}}
+	table, err := router.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(
+		&Runtime{LocalAPIKey: "local-key", Table: table},
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		testLocalizer{},
+	)
+
+	send := func(model string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"http://kitsune.local/v1/responses",
+			strings.NewReader(`{"model":"`+model+`"}`),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer local-key")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	insecureResponse := send("internal-model")
+	if insecureResponse.Code != http.StatusCreated ||
+		insecureResponse.Header().Get("X-Upstream-TLS") != "self-signed" ||
+		insecureResponse.Body.String() != "forwarded over TLS" {
+		t.Fatalf("skip-verify response = %d %#v %q", insecureResponse.Code, insecureResponse.Header(), insecureResponse.Body.String())
+	}
+
+	strictResponse := send("strict-model")
+	if strictResponse.Code != http.StatusBadGateway || !strings.Contains(strictResponse.Body.String(), "upstream_error") {
+		t.Fatalf("strict response = %d %q, want 502 upstream_error", strictResponse.Code, strictResponse.Body.String())
+	}
+}
+
+func transportResponse(request *http.Request, name string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     http.Header{"X-Transport": []string{name}},
+		Body:       http.NoBody,
+		Request:    request,
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -790,11 +938,4 @@ func newTestHandler(t *testing.T, origin, authMode, upstreamKey string, models .
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return New(&Runtime{LocalAPIKey: "local-key", Table: table}, nil, logger, testLocalizer{})
-}
-
-func decodeJSON(t *testing.T, data []byte, target any) {
-	t.Helper()
-	if err := json.Unmarshal(data, target); err != nil {
-		t.Fatal(err)
-	}
 }

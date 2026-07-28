@@ -17,6 +17,7 @@ type Route struct {
 	BaseURL       *url.URL
 	AuthMode      string
 	APIKey        string
+	SkipTLSVerify bool
 }
 
 // ModelInfo is the stable public model metadata exposed by /v1/models.
@@ -58,6 +59,7 @@ func New(cfg config.Config) (*Table, error) {
 				BaseURL:       baseURL,
 				AuthMode:      upstream.Auth.Mode,
 				APIKey:        apiKey,
+				SkipTLSVerify: upstream.TLS.SkipVerify,
 			}
 			models = append(models, ModelInfo{ID: publicName, Owner: upstreamName})
 		}

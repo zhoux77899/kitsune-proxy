@@ -69,8 +69,14 @@ type LoggingConfig struct {
 // UpstreamConfig describes one upstream base URL, authentication rule, and models.
 type UpstreamConfig struct {
 	URL    string        `yaml:"url"`
+	TLS    TLSConfig     `yaml:"tls,omitempty"`
 	Auth   AuthConfig    `yaml:"auth"`
 	Models []ModelConfig `yaml:"models"`
+}
+
+// TLSConfig controls TLS verification for one upstream.
+type TLSConfig struct {
+	SkipVerify bool `yaml:"skip_verify"`
 }
 
 // AuthConfig discriminates between API-key replacement and no upstream auth.
@@ -154,6 +160,17 @@ upstreams: {}
 #       mode: none
 #     models:
 #       - id: llama3.3
+#
+# For a trusted internal HTTPS service whose certificate cannot be verified:
+#   internal-service:
+#     url: https://10.0.0.1:8443/api
+#     # WARNING: disables certificate chain, SAN, and hostname verification.
+#     tls:
+#       skip_verify: true
+#     auth:
+#       mode: none
+#     models:
+#       - id: internal-model
 `, DefaultPort, apiKey)
 
 	file, err := os.OpenFile(paths.ConfigFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -281,8 +298,15 @@ func validateUpstreamsSchema(node *yaml.Node, path string) error {
 func validateUpstreamSchema(node *yaml.Node, path string) error {
 	return validateMapping(node, path, map[string]schemaField{
 		"url":    scalarSchema("!!str"),
+		"tls":    validateTLSSchema,
 		"auth":   validateAuthSchema,
 		"models": validateModelsSchema,
+	})
+}
+
+func validateTLSSchema(node *yaml.Node, path string) error {
+	return validateMapping(node, path, map[string]schemaField{
+		"skip_verify": scalarSchema("!!bool"),
 	})
 }
 
@@ -379,6 +403,12 @@ func Validate(cfg Config) error {
 		}
 		if err := validateBaseURL(upstream.URL); err != nil {
 			return validation(basePath+".url", err.Error())
+		}
+		if upstream.TLS.SkipVerify {
+			parsed, _ := url.Parse(upstream.URL)
+			if parsed.Scheme != "https" {
+				return validation(basePath+".tls.skip_verify", "requires an HTTPS upstream URL")
+			}
 		}
 		if err := validateAuth(basePath+".auth", upstream.Auth); err != nil {
 			return err
