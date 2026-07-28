@@ -37,8 +37,9 @@ Avoid: local key, Agent key.
 
 ### Upstream
 
-A named HTTP or HTTPS base URL, authentication rule, and non-empty set of model
-routes. Its name is used as `owned_by` in `/v1/models`.
+A named HTTP or HTTPS base URL, optional TLS verification policy,
+authentication rule, and non-empty set of model routes. Its name is used as
+`owned_by` in `/v1/models`.
 
 ### Upstream Base URL
 
@@ -47,6 +48,13 @@ such as `https://upstream.example.com/api`. The Agent request path is appended
 with one joining slash, producing
 `https://upstream.example.com/api/v1/messages` for an inbound `/v1/messages`
 request. Userinfo, queries, and fragments are not allowed.
+
+### TLS Verification Policy
+
+The per-Upstream setting in `upstreams.<name>.tls.skip_verify`. Omitted or false
+means the HTTPS certificate chain, SAN, and hostname are verified. True disables
+all three checks for that HTTPS Upstream and every one of its model routes. It
+is invalid for an HTTP Upstream and does not enable CN fallback.
 
 ### Upstream Model ID
 
@@ -99,6 +107,8 @@ of `config.yaml` and does not affect a Snapshot.
 - Every Public Model Name resolves to exactly one Upstream Model ID.
 - Authentication finishes before the business request body is read.
 - A Local API Key never crosses the upstream seam.
+- TLS verification is strict by default and may be skipped only by the selected
+  Upstream's explicit policy.
 - The outbound URL uses the selected Upstream Base URL followed by the Agent
   request path, preserving escaped path bytes and the Agent query.
 - No route fallback, prefix match, glob, protocol conversion, or WebSocket

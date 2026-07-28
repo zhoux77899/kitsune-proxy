@@ -141,31 +141,114 @@ server:
 logging:
   level: debug
 upstreams:
-  openai:
-    url: https://api.openai.com
+  hosted:
+    url: https://hosted.example
     auth:
       mode: replace
       api_key: sk-upstream
     models:
-      - id: gpt-5
-        alias: openai-gpt-5
+      - id: chat-model-v2
+        alias: hosted-chat
   local:
     url: http://127.0.0.1:11434
     auth:
       mode: none
     models:
-      - id: llama3.3
+      - id: local-model-v1
 `)
 
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Upstreams["openai"].Models[0].PublicName() != "openai-gpt-5" {
+	if cfg.Upstreams["hosted"].Models[0].PublicName() != "hosted-chat" {
 		t.Fatalf("public model name not loaded")
 	}
 	if cfg.Upstreams["local"].Auth.APIKey != nil {
 		t.Fatalf("none auth unexpectedly has an API key")
+	}
+}
+
+func TestLoadTLSVerificationPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		tls        string
+		skipVerify bool
+	}{
+		{name: "omitted"},
+		{name: "empty", tls: "    tls: {}\n"},
+		{name: "explicit false", tls: "    tls: {skip_verify: false}\n"},
+		{name: "explicit true", tls: "    tls: {skip_verify: true}\n", skipVerify: true},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := Load(writeConfig(t, `version: 1
+server: {port: 18080, api_key: kitsune-local}
+logging: {level: info}
+upstreams:
+  internal:
+    url: https://internal.example
+`+test.tls+`    auth: {mode: none}
+    models: [{id: model}]
+`))
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got := cfg.Upstreams["internal"].TLS.SkipVerify; got != test.skipVerify {
+				t.Fatalf("skip verify = %t, want %t", got, test.skipVerify)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidTLSVerificationPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		url      string
+		tls      string
+		wantPath string
+	}{
+		{name: "non-mapping", url: "https://internal.example", tls: "true", wantPath: "upstreams.internal.tls"},
+		{name: "null block", url: "https://internal.example", tls: "null", wantPath: "upstreams.internal.tls"},
+		{name: "string value", url: "https://internal.example", tls: `{skip_verify: "true"}`, wantPath: "upstreams.internal.tls.skip_verify"},
+		{name: "null value", url: "https://internal.example", tls: "{skip_verify: null}", wantPath: "upstreams.internal.tls.skip_verify"},
+		{name: "duplicate field", url: "https://internal.example", tls: "{skip_verify: true, skip_verify: false}", wantPath: "upstreams.internal.tls.skip_verify"},
+		{name: "unknown field", url: "https://internal.example", tls: "{skip_verify: true, server_name: internal.example}", wantPath: "upstreams.internal.tls.server_name"},
+		{name: "HTTP upstream", url: "http://127.0.0.1:8443", tls: "{skip_verify: true}", wantPath: "upstreams.internal.tls.skip_verify"},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Load(writeConfig(t, `version: 1
+server: {port: 18080, api_key: kitsune-local}
+logging: {level: info}
+upstreams:
+  internal:
+    url: `+test.url+`
+    tls: `+test.tls+`
+    auth: {mode: none}
+    models: [{id: model}]
+`))
+			if err == nil {
+				t.Fatal("Load() error = nil, want validation error")
+			}
+			validationError, ok := err.(*ValidationError)
+			if !ok {
+				t.Fatalf("Load() error = %T, want *ValidationError", err)
+			}
+			if validationError.Path != test.wantPath {
+				t.Fatalf("validation path = %q, want %q", validationError.Path, test.wantPath)
+			}
+		})
 	}
 }
 
@@ -176,9 +259,9 @@ func TestLoadAcceptsUpstreamBaseURLPath(t *testing.T) {
 		name    string
 		baseURL string
 	}{
-		{name: "OpenRouter", baseURL: "https://openrouter.ai/api"},
-		{name: "Alibaba Model Studio", baseURL: "https://workspace.cn-beijing.maas.aliyuncs.com/apps/anthropic"},
-		{name: "trailing slash", baseURL: "https://openrouter.ai/api/"},
+		{name: "single base path", baseURL: "https://upstream.example/api"},
+		{name: "nested base path", baseURL: "https://gateway.example/apps/messages"},
+		{name: "trailing slash", baseURL: "https://upstream.example/api/"},
 	}
 	template := `version: 1
 server: {port: 18080, api_key: kitsune-local}
@@ -259,10 +342,10 @@ upstreams: {}
 server: {port: 18080, api_key: kitsune-local}
 logging: {level: info}
 upstreams:
-  openai:
-    url: https://api.openai.com
+  hosted:
+    url: https://hosted.example
     auth: {mode: replace}
-    models: [{id: gpt-5}]
+    models: [{id: hosted-model}]
 `,
 		},
 		{
@@ -274,7 +357,7 @@ upstreams:
   local:
     url: http://127.0.0.1:11434
     auth: {mode: none, api_key: secret-local}
-    models: [{id: llama3}]
+    models: [{id: local-model}]
 `,
 			secret: "secret-local",
 		},
@@ -287,7 +370,7 @@ upstreams:
   local:
     url: http://127.0.0.1:11434
     auth: {mode: none, api_key: null}
-    models: [{id: llama3}]
+    models: [{id: local-model}]
 `,
 		},
 		{
@@ -307,7 +390,7 @@ upstreams:
   local:
     url: http://127.0.0.1:11434
     auth: {mode: none}
-    models: [{id: llama3, alias: null}]
+    models: [{id: local-model, alias: null}]
 `,
 		},
 		{

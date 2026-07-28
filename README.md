@@ -120,6 +120,30 @@ the Agent path with one slash: `https://upstream.example.com/api` becomes
 service's documentation for its compatible base URL, request schema, and
 authentication requirements.
 
+### TLS verification
+
+HTTPS Upstreams verify the certificate chain, SAN, and hostname by default. For
+a trusted internal HTTPS service whose self-signed or internal-CA certificate
+cannot be verified, verification can be disabled for that Upstream only:
+
+```yaml
+upstreams:
+  internal-service:
+    url: https://10.0.0.1:8443/api
+    tls:
+      skip_verify: true
+    auth:
+      mode: none
+    models:
+      - id: internal-model
+```
+
+`skip_verify: true` is accepted only for an `https://` URL and applies to every
+model configured under that Upstream. It disables certificate-chain, SAN, and
+hostname verification; it does not provide a CN fallback. Use it only when the
+network and upstream are independently trusted. Omitting `tls`, using an empty
+`tls: {}` block, or setting `skip_verify: false` keeps strict verification.
+
 ### Models and aliases
 
 `id` is the upstream's real model identifier. `alias`, when present, is the
@@ -293,6 +317,8 @@ automatic updates.
 ## Security notes
 
 - The listener cannot be configured away from IPv4 loopback.
+- TLS verification is enabled by default and can be disabled only for an
+  explicitly configured HTTPS Upstream.
 - Configuration and log files are created with user-only permissions on Unix.
 - The configuration contains upstream secrets in plaintext; protect the user
   profile and never commit a real configuration.
